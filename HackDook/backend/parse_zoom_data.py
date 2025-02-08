@@ -1,4 +1,22 @@
 #!/usr/bin/env python3
+"""
+zoom_parser.py
+
+This module provides functions to parse Zoom VTT transcript files and chat logs,
+combine their data into a unified timeline, perform word stemming using NLTK's
+PorterStemmer, and write the output to a CSV file.
+
+Usage as a command-line tool:
+    python zoom_parser.py --vtt <transcript.vtt> --chat <chat_log.txt> --output <output.csv>
+
+Usage as an importable module:
+    import zoom_parser
+    transcript = zoom_parser.parse_vtt("transcript.vtt")
+    chat_log = zoom_parser.parse_chat_log("chat_log.txt")
+    combined = zoom_parser.combine_data(transcript, chat_log)
+    # Optionally write to CSV:
+    zoom_parser.write_csv(combined, "output.csv")
+"""
 import re
 import csv
 import argparse
@@ -7,6 +25,9 @@ from nltk.stem.porter import PorterStemmer
 def timestamp_to_seconds(timestamp_str):
     """
     Convert a timestamp string (HH:MM:SS or HH:MM:SS.mmm) to seconds (as a float).
+
+    :param timestamp_str: Timestamp as a string.
+    :return: Time in seconds (float).
     """
     parts = timestamp_str.split(":")
     if len(parts) != 3:
@@ -20,34 +41,36 @@ def timestamp_to_seconds(timestamp_str):
 def parse_vtt(filename):
     """
     Parse a VTT file (WebVTT format) and return a list of transcript entries.
-    
-    Each entry is a dictionary with:
+
+    Each entry is a dictionary with the following keys:
       - type: "transcript"
-      - block_index: (if available) the block index as a string
-      - timestamp: the start time (string)
-      - time: the start time in seconds (float)
-      - end: the end timestamp (string)
-      - speaker: the speaker name (if found)
-      - text: the spoken text (with the speaker name removed)
+      - block_index: Block index (as a string; may be empty)
+      - timestamp: Start time (string)
+      - time: Start time in seconds (float)
+      - end: End timestamp (string)
+      - speaker: Speaker name (if present)
+      - text: Spoken text (with speaker name removed)
+
+    :param filename: Path to the VTT file.
+    :return: List of transcript entries (dictionaries).
     """
     with open(filename, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # Split the file into blocks separated by blank lines.
+    # Split content into blocks separated by blank lines.
     blocks = content.strip().split("\n\n")
 
-    # Remove the header (usually "WEBVTT") if present.
+    # Remove header if present.
     if blocks and blocks[0].strip().startswith("WEBVTT"):
         blocks = blocks[1:]
 
     transcript = []
-
     for block in blocks:
         lines = block.strip().splitlines()
         if not lines:
             continue
 
-        # Check if the first line is a block index (a number)
+        # If the first line is a number, use it as the block index.
         if re.match(r"^\d+$", lines[0].strip()):
             block_index = lines[0].strip()
             timestamp_line = lines[1].strip() if len(lines) > 1 else ""
@@ -57,17 +80,16 @@ def parse_vtt(filename):
             timestamp_line = lines[0].strip()
             text_lines = lines[1:] if len(lines) > 1 else []
 
-        # Parse the timestamp line; expected format: "00:00:03.090 --> 00:00:05.760"
+        # Expected timestamp format: "00:00:03.090 --> 00:00:05.760"
         start, end = None, None
         timestamp_parts = timestamp_line.split("-->")
         if len(timestamp_parts) == 2:
             start = timestamp_parts[0].strip()
             end = timestamp_parts[1].strip()
 
-        # Combine text lines into a single string.
         text = " ".join(text_lines).strip()
 
-        # Extract the speaker if the text begins with "Speaker Name:".
+        # Extract speaker if the text begins with "Speaker:".
         speaker = ""
         message = text
         if ":" in text:
@@ -84,21 +106,22 @@ def parse_vtt(filename):
             "speaker": speaker,
             "text": message
         })
-
     return transcript
 
 def parse_chat_log(filename):
     """
     Parse a chat log file where each line is formatted as:
-    
-      timestamp[TAB]Speaker Name:[TAB]Message text
-      
-    Returns a list of chat entries, each as a dictionary with:
+        timestamp[TAB]Speaker Name:[TAB]Message text
+
+    Returns a list of chat entries. Each entry is a dictionary with the keys:
       - type: "chat"
-      - timestamp: the chat time (string)
-      - time: the chat time in seconds (float)
-      - speaker: the speaker name (colon removed)
-      - message: the chat message text
+      - timestamp: Chat time (string)
+      - time: Chat time in seconds (float)
+      - speaker: Speaker name (colon removed)
+      - message: Chat message text
+
+    :param filename: Path to the chat log file.
+    :return: List of chat entries (dictionaries).
     """
     chat_entries = []
     with open(filename, "r", encoding="utf-8") as f:
@@ -106,7 +129,7 @@ def parse_chat_log(filename):
             line = line.strip()
             if not line:
                 continue
-            # Split each line by tab
+
             parts = line.split("\t")
             if len(parts) < 3:
                 continue  # Skip malformed lines
@@ -124,58 +147,52 @@ def parse_chat_log(filename):
                 "speaker": speaker,
                 "message": message
             })
-
     return chat_entries
 
 def combine_data(transcript, chat_entries):
     """
-    Combine transcript and chat log entries into one list sorted by time.
+    Combine transcript and chat log entries into one list, sorted by time.
+
+    :param transcript: List of transcript entries.
+    :param chat_entries: List of chat log entries.
+    :return: Combined and sorted list of entries.
     """
     combined = transcript + chat_entries
     combined.sort(key=lambda x: x.get("time", 0))
     return combined
 
-def stem_text(text, stemmer):
+def stem_text(text, stemmer=None):
     """
-    Stem the words in a given text using the provided stemmer.
-    This function extracts alphanumeric words, stems each, and rejoins them.
+    Stem the words in a given text using NLTK's PorterStemmer.
+
+    :param text: Input text to stem.
+    :param stemmer: An instance of a stemmer; if None, a PorterStemmer is used.
+    :return: A string with stemmed words.
     """
-    # Extract words using regex (lowercase them)
+    if stemmer is None:
+        stemmer = PorterStemmer()
     words = re.findall(r'\w+', text.lower())
     stemmed_words = [stemmer.stem(word) for word in words]
     return " ".join(stemmed_words)
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Parse Zoom VTT transcript and chat log files, combine them, stem words, and output to CSV."
-    )
-    parser.add_argument("--vtt", required=True, help="Path to the VTT transcript file")
-    parser.add_argument("--chat", required=True, help="Path to the chat log file")
-    parser.add_argument("--output", required=True, help="Path to the output CSV file")
-    args = parser.parse_args()
+def write_csv(data, output_filename):
+    """
+    Write the combined data to a CSV file.
 
-    transcript = parse_vtt(args.vtt)
-    chat_log = parse_chat_log(args.chat)
-    combined_data = combine_data(transcript, chat_log)
+    Each entry in data should be a dictionary. The CSV will include the following fields:
+        type, block_index, timestamp, time, end, speaker, message, stemmed_message
 
-    # Initialize the stemmer
-    stemmer = PorterStemmer()
-
-    # Define CSV field names.
+    :param data: List of dictionaries representing the combined entries.
+    :param output_filename: Path to the output CSV file.
+    """
     fieldnames = ["type", "block_index", "timestamp", "time", "end", "speaker", "message", "stemmed_message"]
-
-    # Open the CSV file for writing.
-    with open(args.output, "w", encoding="utf-8", newline="") as csvfile:
+    with open(output_filename, "w", encoding="utf-8", newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
-        for entry in combined_data:
-            # For transcript entries, the message is in 'text'; for chat entries, in 'message'
-            if entry["type"] == "transcript":
-                message = entry.get("text", "")
-            else:
-                message = entry.get("message", "")
-            # Compute the stemmed version of the message.
-            stemmed_message = stem_text(message, stemmer)
+        for entry in data:
+            # For transcript entries, use the 'text' key; for chat entries, use 'message'
+            message = entry.get("text", "") if entry.get("type") == "transcript" else entry.get("message", "")
+            stemmed_message = stem_text(message)
             row = {
                 "type": entry.get("type", ""),
                 "block_index": entry.get("block_index", ""),
@@ -188,7 +205,31 @@ def main():
             }
             writer.writerow(row)
 
-    print(f"Combined CSV output written to {args.output}")
+def process_zoom_data(vtt_filename, chat_filename, output_csv):
+    """
+    Process Zoom data by parsing the VTT transcript and chat log, combining the entries,
+    and writing the result to a CSV file.
+
+    :param vtt_filename: Path to the VTT transcript file.
+    :param chat_filename: Path to the chat log file.
+    :param output_csv: Path to the output CSV file.
+    :return: Combined list of entries.
+    """
+    transcript = parse_vtt(vtt_filename)
+    chat_log = parse_chat_log(chat_filename)
+    combined = combine_data(transcript, chat_log)
+    write_csv(combined, output_csv)
+    return combined
 
 if __name__ == "__main__":
-    main()
+    # CLI for standalone usage.
+    parser = argparse.ArgumentParser(
+        description="Parse Zoom VTT transcript and chat log files, combine them, stem words, and output to CSV."
+    )
+    parser.add_argument("--vtt", required=True, help="Path to the VTT transcript file")
+    parser.add_argument("--chat", required=True, help="Path to the chat log file")
+    parser.add_argument("--output", required=True, help="Path to the output CSV file")
+    args = parser.parse_args()
+
+    process_zoom_data(args.vtt, args.chat, args.output)
+    print(f"Combined CSV output written to {args.output}")
