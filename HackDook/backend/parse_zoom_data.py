@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import re
-import json
+import csv
 import argparse
+from nltk.stem.porter import PorterStemmer
 
 def timestamp_to_seconds(timestamp_str):
     """
@@ -11,7 +12,6 @@ def timestamp_to_seconds(timestamp_str):
     if len(parts) != 3:
         raise ValueError(f"Invalid timestamp format: {timestamp_str}")
     hours, minutes = int(parts[0]), int(parts[1])
-    # Split seconds from milliseconds if available.
     sec_parts = parts[2].split(".")
     seconds = int(sec_parts[0])
     milliseconds = int(sec_parts[1]) if len(sec_parts) == 2 else 0
@@ -21,12 +21,14 @@ def parse_vtt(filename):
     """
     Parse a VTT file (WebVTT format) and return a list of transcript entries.
     
-    Each entry is a dictionary containing:
-      - block_index: (if available) the index number of the block
-      - start: the start timestamp (string)
+    Each entry is a dictionary with:
+      - type: "transcript"
+      - block_index: (if available) the block index as a string
+      - timestamp: the start time (string)
+      - time: the start time in seconds (float)
       - end: the end timestamp (string)
-      - speaker: the name extracted from the text (if any)
-      - text: the spoken text (with speaker removed if present)
+      - speaker: the speaker name (if found)
+      - text: the spoken text (with the speaker name removed)
     """
     with open(filename, "r", encoding="utf-8") as f:
         content = f.read()
@@ -51,7 +53,7 @@ def parse_vtt(filename):
             timestamp_line = lines[1].strip() if len(lines) > 1 else ""
             text_lines = lines[2:] if len(lines) > 2 else []
         else:
-            block_index = None
+            block_index = ""
             timestamp_line = lines[0].strip()
             text_lines = lines[1:] if len(lines) > 1 else []
 
@@ -66,7 +68,7 @@ def parse_vtt(filename):
         text = " ".join(text_lines).strip()
 
         # Extract the speaker if the text begins with "Speaker Name:".
-        speaker = None
+        speaker = ""
         message = text
         if ":" in text:
             possible_speaker, possible_message = text.split(":", 1)
@@ -91,10 +93,12 @@ def parse_chat_log(filename):
     
       timestamp[TAB]Speaker Name:[TAB]Message text
       
-    Returns a list of chat entries, each as a dictionary containing:
-      - timestamp: the time stamp from the chat log
-      - speaker: the name of the speaker (colon removed if present)
-      - message: the text of the chat message
+    Returns a list of chat entries, each as a dictionary with:
+      - type: "chat"
+      - timestamp: the chat time (string)
+      - time: the chat time in seconds (float)
+      - speaker: the speaker name (colon removed)
+      - message: the chat message text
     """
     chat_entries = []
     with open(filename, "r", encoding="utf-8") as f:
@@ -109,7 +113,6 @@ def parse_chat_log(filename):
 
             timestamp = parts[0].strip()
             speaker = parts[1].strip()
-            # Remove a trailing colon from the speaker's name, if present.
             if speaker.endswith(":"):
                 speaker = speaker[:-1].strip()
             message = parts[2].strip()
@@ -126,25 +129,66 @@ def parse_chat_log(filename):
 
 def combine_data(transcript, chat_entries):
     """
-    Combine the transcript and chat log entries into one sorted list (by time).
+    Combine transcript and chat log entries into one list sorted by time.
     """
     combined = transcript + chat_entries
-    # Sort the combined list by the 'time' key
     combined.sort(key=lambda x: x.get("time", 0))
     return combined
 
+def stem_text(text, stemmer):
+    """
+    Stem the words in a given text using the provided stemmer.
+    This function extracts alphanumeric words, stems each, and rejoins them.
+    """
+    # Extract words using regex (lowercase them)
+    words = re.findall(r'\w+', text.lower())
+    stemmed_words = [stemmer.stem(word) for word in words]
+    return " ".join(stemmed_words)
+
 def main():
-    parser = argparse.ArgumentParser(description="Parse Zoom VTT transcript and chat log files, and combine them.")
+    parser = argparse.ArgumentParser(
+        description="Parse Zoom VTT transcript and chat log files, combine them, stem words, and output to CSV."
+    )
     parser.add_argument("--vtt", required=True, help="Path to the VTT transcript file")
     parser.add_argument("--chat", required=True, help="Path to the chat log file")
+    parser.add_argument("--output", required=True, help="Path to the output CSV file")
     args = parser.parse_args()
 
     transcript = parse_vtt(args.vtt)
     chat_log = parse_chat_log(args.chat)
-
     combined_data = combine_data(transcript, chat_log)
 
-    print(combined_data)
+    # Initialize the stemmer
+    stemmer = PorterStemmer()
+
+    # Define CSV field names.
+    fieldnames = ["type", "block_index", "timestamp", "time", "end", "speaker", "message", "stemmed_message"]
+
+    # Open the CSV file for writing.
+    with open(args.output, "w", encoding="utf-8", newline="") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for entry in combined_data:
+            # For transcript entries, the message is in 'text'; for chat entries, in 'message'
+            if entry["type"] == "transcript":
+                message = entry.get("text", "")
+            else:
+                message = entry.get("message", "")
+            # Compute the stemmed version of the message.
+            stemmed_message = stem_text(message, stemmer)
+            row = {
+                "type": entry.get("type", ""),
+                "block_index": entry.get("block_index", ""),
+                "timestamp": entry.get("timestamp", ""),
+                "time": entry.get("time", ""),
+                "end": entry.get("end", ""),
+                "speaker": entry.get("speaker", ""),
+                "message": message,
+                "stemmed_message": stemmed_message
+            }
+            writer.writerow(row)
+
+    print(f"Combined CSV output written to {args.output}")
 
 if __name__ == "__main__":
     main()
