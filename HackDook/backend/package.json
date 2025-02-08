@@ -1,0 +1,20 @@
+{
+    "name": "zoom-engagement-backend",
+    "version": "1.0.0",
+    "description": "Backend to parse Zoom transcripts and store in SQL DB",
+    "main": "server.js",
+    "scripts": {
+      "start": "node server.js"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+      "cors": "^2.8.5",
+      "express": "^4.18.2",
+      "multer": "^1.4.5-lts.1",
+      "sequelize": "^6.31.1",
+      "sqlite3": "^5.1.6"
+    }
+  }
+  
