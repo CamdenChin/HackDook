@@ -3,14 +3,28 @@ import re
 import json
 import argparse
 
+def timestamp_to_seconds(timestamp_str):
+    """
+    Convert a timestamp string (HH:MM:SS or HH:MM:SS.mmm) to seconds (as a float).
+    """
+    parts = timestamp_str.split(":")
+    if len(parts) != 3:
+        raise ValueError(f"Invalid timestamp format: {timestamp_str}")
+    hours, minutes = int(parts[0]), int(parts[1])
+    # Split seconds from milliseconds if available.
+    sec_parts = parts[2].split(".")
+    seconds = int(sec_parts[0])
+    milliseconds = int(sec_parts[1]) if len(sec_parts) == 2 else 0
+    return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000
+
 def parse_vtt(filename):
     """
     Parse a VTT file (WebVTT format) and return a list of transcript entries.
     
     Each entry is a dictionary containing:
       - block_index: (if available) the index number of the block
-      - start: the start timestamp (as a string)
-      - end: the end timestamp (as a string)
+      - start: the start timestamp (string)
+      - end: the end timestamp (string)
       - speaker: the name extracted from the text (if any)
       - text: the spoken text (with speaker removed if present)
     """
@@ -56,13 +70,14 @@ def parse_vtt(filename):
         message = text
         if ":" in text:
             possible_speaker, possible_message = text.split(":", 1)
-            # You may wish to add extra validation for speaker names here.
             speaker = possible_speaker.strip()
             message = possible_message.strip()
 
         transcript.append({
+            "type": "transcript",
             "block_index": block_index,
-            "start": start,
+            "timestamp": start,
+            "time": timestamp_to_seconds(start) if start else None,
             "end": end,
             "speaker": speaker,
             "text": message
@@ -100,15 +115,26 @@ def parse_chat_log(filename):
             message = parts[2].strip()
 
             chat_entries.append({
+                "type": "chat",
                 "timestamp": timestamp,
+                "time": timestamp_to_seconds(timestamp),
                 "speaker": speaker,
                 "message": message
             })
 
     return chat_entries
 
+def combine_data(transcript, chat_entries):
+    """
+    Combine the transcript and chat log entries into one sorted list (by time).
+    """
+    combined = transcript + chat_entries
+    # Sort the combined list by the 'time' key
+    combined.sort(key=lambda x: x.get("time", 0))
+    return combined
+
 def main():
-    parser = argparse.ArgumentParser(description="Parse Zoom VTT transcript and chat log files.")
+    parser = argparse.ArgumentParser(description="Parse Zoom VTT transcript and chat log files, and combine them.")
     parser.add_argument("--vtt", required=True, help="Path to the VTT transcript file")
     parser.add_argument("--chat", required=True, help="Path to the chat log file")
     args = parser.parse_args()
@@ -116,12 +142,9 @@ def main():
     transcript = parse_vtt(args.vtt)
     chat_log = parse_chat_log(args.chat)
 
-    # Output the parsed data as JSON (or handle it as needed)
-    print("Transcript Data:")
-    print(json.dumps(transcript, indent=2))
-    
-    print("\nChat Log Data:")
-    print(json.dumps(chat_log, indent=2))
+    combined_data = combine_data(transcript, chat_log)
+
+    print(combined_data)
 
 if __name__ == "__main__":
     main()
