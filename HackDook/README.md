@@ -33,6 +33,7 @@ cd <repo-name>/frontend
 Install the required dependencies for the frontend:
 
 ```
+cd Hackdook/frontend
 npm install
 ```
 
@@ -49,6 +50,11 @@ Start the backend server:
 ```
 npm start
 The backend will run on http://localhost:5001.
+```
+Then do: CHMD + Z
+
+```
+bg
 ```
 
 ### 4. Start the Frontend (React App)
