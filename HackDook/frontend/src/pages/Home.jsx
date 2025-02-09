@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useDropzone } from "react-dropzone";
-import axios from "axios";
+import axios from 'axios';
 import { Link } from "react-router-dom";
 
 function Home() {
